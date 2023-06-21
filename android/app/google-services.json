@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "738470002984",
+    "project_id": "pardio-pro",
+    "storage_bucket": "pardio-pro.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:738470002984:android:128ad651fc0611b04e901d",
+        "android_client_info": {
+          "package_name": "at.ashna.pardio.pardio"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "738470002984-1g1m4s8u9maerjdnfn47vck2oe4di26e.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCO38WDoLLj5l-VE0s-9KagPj_pNqXz1hc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "738470002984-1g1m4s8u9maerjdnfn47vck2oe4di26e.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
