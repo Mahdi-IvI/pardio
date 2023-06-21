@@ -1,4 +1,5 @@
 # pardio
 
-Persian Radio Application
+Persian Radio Player Application
+create by Mahdi-IvI
 
