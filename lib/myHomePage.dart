@@ -1,10 +1,11 @@
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:pardio/config.dart';
 import 'package:pardio/radio_item.dart';
 import 'package:pardio/radio_model.dart';
-import 'package:radio_player/radio_player.dart';
-
 import 'loading.dart';
 
 class MyHomePage extends StatefulWidget {
@@ -15,27 +16,24 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final RadioPlayer _radioPlayer = RadioPlayer();
+  final _radioPlayer = AudioPlayer();
   bool isPlaying = false;
-  List<String>? metadata;
 
-  late Future<List<RadioModel>> future;
+  late Stream<List<RadioModel>> stream;
 
   @override
   void initState() {
     super.initState();
-    future = getAvailableRadios();
+    stream = getAvailableRadios();
     initRadioPlayer();
   }
 
-
-
-  Future<List<RadioModel>> getAvailableRadios() {
+  Stream<List<RadioModel>> getAvailableRadios() {
     return Pardio.fireStore
         .collection(Pardio.radioCollection)
-        .get()
-        .then((value) {
-      return value.docs.map((doc) {
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
         return RadioModel(
           id: doc.id,
           name: doc[Pardio.radioName],
@@ -46,33 +44,69 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void initRadioPlayer() {
-       _radioPlayer.setDefaultArtwork("assets/icon.png");
-    _radioPlayer.stateStream.listen((value) {
-      setState(() {
-        isPlaying = value;
-      });
-    });
+  static int _nextMediaId = 0;
 
-    _radioPlayer.metadataStream.listen((value) {
-      setState(() {
-        metadata = value;
-        if (kDebugMode) {
-          print(metadata);
-        }
-      });
+  void initRadioPlayer() async {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.speech());
+    // Listen to errors during playback.
+    _radioPlayer.playbackEventStream.listen((event) {},
+        onError: (Object e, StackTrace stackTrace) {
+      print('A stream error occurred: $e');
     });
+    setRadioChannel();
   }
 
-   void setRadioChannel(String title, String url) {
-    _radioPlayer.stop();
-    _radioPlayer.setChannel(
-      title: title,
-      url: url,
-    );
+  @override
+  void dispose() {
+    _radioPlayer.dispose();
+    super.dispose();
+  }
+
+  final _playlist = ConcatenatingAudioSource(children: []);
+
+  void setRadioChannel() async {
+    getAvailableRadios().listen((value) {
+      for (RadioModel ra in value) {
+        _playlist.add(
+          AudioSource.uri(
+            Uri.parse(ra.url),
+            tag: MediaItem(
+              id: '${_nextMediaId++}',
+              title: ra.name,
+            ),
+          ),
+        );
+      }
+    });
+    try {
+      await _radioPlayer.setAudioSource(_playlist);
+    } catch (e, stackTrace) {
+      // Catch load errors: 404, invalid url ...
+      print("Error loading playlist: $e");
+      print(stackTrace);
+    }
+
+   /* if (pageTitle != Pardio.appName) {
+      _radioPlayer.stop();
+    }*/
+
+  /*  try {
+      await _radioPlayer.setAudioSource(
+        AudioSource.uri(
+          Uri.parse(url),
+          tag: MediaItem(
+            id: '${_nextMediaId++}',
+            title: title,
+          ),
+        ),
+      );
+    } catch (e) {
+      print("Error loading audio source: $e");
+    }
     Future.delayed(const Duration(milliseconds: 500), () {
       _radioPlayer.play();
-    });
+    });*/
   }
 
   String pageTitle = Pardio.appName;
@@ -95,10 +129,9 @@ class _MyHomePageState extends State<MyHomePage> {
         )),
         child: Column(
           children: [
-
             Expanded(
-              child: FutureBuilder<List<RadioModel>>(
-                future: future,
+              child: StreamBuilder<List<RadioModel>>(
+                stream: stream,
                 builder: (BuildContext context, radioSnapshot) {
                   if (radioSnapshot.hasError) {
                     return Center(child: Text(radioSnapshot.error.toString()));
@@ -109,11 +142,8 @@ class _MyHomePageState extends State<MyHomePage> {
                     return const Center(child: WhiteLoading());
                   }
 
-
                   return Column(
                     children: [
-
-
                       const SizedBox(
                         height: kToolbarHeight,
                       ),
@@ -130,15 +160,17 @@ class _MyHomePageState extends State<MyHomePage> {
                           ),
                           itemCount: radioSnapshot.data!.length,
                           itemBuilder: (context, index) {
-
                             return InkWell(
                               onTap: () {
-                                setRadioChannel(radioSnapshot.data![index].name,
+                                _radioPlayer.seek(Duration.zero, index: index);
+                                _radioPlayer.play();
+
+                              /*  setRadioChannel(radioSnapshot.data![index].name,
                                     radioSnapshot.data![index].url);
                                 setState(() {
                                   myIndex = index;
                                   pageTitle = radioSnapshot.data![index].name;
-                                });
+                                });*/
                               },
                               child: RadioItem(
                                 model: radioSnapshot.data![index],
@@ -153,22 +185,32 @@ class _MyHomePageState extends State<MyHomePage> {
                         child: Column(
                           children: [
                             Container(
-                                margin: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 30),
-                                child: Text(
-                                  metadata != null
-                                      ? "${metadata![0]} - ${metadata![1]}"
-                                      : "",
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                      fontSize: 16),
-                                )),
+                              margin: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 30),
+                              child: StreamBuilder<IcyMetadata?>(
+                                stream: _radioPlayer.icyMetadataStream,
+                                builder: (context, snapshot) {
+                                  final metadata = snapshot.data;
+                                  final title = metadata?.info?.title ?? '';
+                                  final url = metadata?.info?.url;
+                                  return Column(
+                                    children: [
+                                      Text(title,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyLarge),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceAround,
                               children: [
                                 InkWell(
                                   onTap: () {
-                                    if (myIndex == 0) {
+                                    _radioPlayer.hasPrevious ? _radioPlayer.seekToPrevious : null;
+                                    /*if (myIndex == 0) {
                                       myIndex = radioSnapshot.data!.length - 1;
                                       setRadioChannel(
                                           radioSnapshot.data![myIndex].name,
@@ -186,7 +228,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                         pageTitle =
                                             radioSnapshot.data![myIndex].name;
                                       });
-                                    }
+                                    }*/
                                   },
                                   child: Container(
                                     padding: const EdgeInsets.all(5),
@@ -199,38 +241,86 @@ class _MyHomePageState extends State<MyHomePage> {
                                     ),
                                   ),
                                 ),
-                                InkWell(
-                                  onTap: () {
-                                    if (metadata == null) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(const SnackBar(
-                                              content: Text(
-                                                  "Please choose a Radio")));
+                                StreamBuilder<PlayerState>(
+                                  stream: _radioPlayer.playerStateStream,
+                                  builder: (context, snapshot) {
+                                    final playerState = snapshot.data;
+                                    final processingState =
+                                        playerState?.processingState;
+                                    final playing = playerState?.playing;
+                                    if (processingState ==
+                                            ProcessingState.loading ||
+                                        processingState ==
+                                            ProcessingState.buffering) {
+                                      return Container(
+                                        margin: const EdgeInsets.all(8.0),
+                                        width: 64.0,
+                                        height: 64.0,
+                                        child: const CircularProgressIndicator(
+                                          color: Colors.black,
+                                        ),
+                                      );
+                                    } else if (playing != true) {
+                                      return Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                                color: Colors.black)),
+                                        child: IconButton(
+                                          icon: const Icon(
+                                            Icons.play_arrow_rounded,
+                                          ),
+                                          iconSize: 27,
+                                          onPressed: () {
+
+                                              _radioPlayer.play();
+
+                                          },
+                                        ),
+                                      );
+                                    } else if (processingState !=
+                                        ProcessingState.completed) {
+                                      return Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                                color: Colors.black)),
+                                        child: IconButton(
+                                          icon: const Icon(
+                                            Icons.pause,
+                                          ),
+                                          iconSize: 27,
+                                          onPressed: () {
+                                            _radioPlayer.pause();
+                                          },
+                                        ),
+                                      );
                                     } else {
-                                      isPlaying
-                                          ? _radioPlayer.pause()
-                                          : _radioPlayer.play();
+                                      return Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                                color: Colors.black)),
+                                        child: IconButton(
+                                          icon: const Icon(
+                                            Icons.replay,
+                                          ),
+                                          iconSize: 27,
+                                          onPressed: () {
+                                            _radioPlayer.seek(Duration.zero,index:0);
+                                          },
+                                        ),
+                                      );
                                     }
-
-
                                   },
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border:
-                                            Border.all(color: Colors.black)),
-                                    child: Icon(
-                                      isPlaying
-                                          ? Icons.pause_rounded
-                                          : Icons.play_arrow_rounded,
-                                      size: 27,
-                                    ),
-                                  ),
                                 ),
                                 InkWell(
                                   onTap: () {
-                                    if (myIndex ==
+                                    _radioPlayer.hasNext ? _radioPlayer.seekToNext : null;
+                                    /*if (myIndex ==
                                         radioSnapshot.data!.length - 1) {
                                       myIndex = 0;
                                       setRadioChannel(
@@ -249,7 +339,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                         pageTitle =
                                             radioSnapshot.data![myIndex].name;
                                       });
-                                    }
+                                    }*/
                                   },
                                   child: Container(
                                     padding: const EdgeInsets.all(5),

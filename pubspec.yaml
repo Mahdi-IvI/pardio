@@ -29,11 +29,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  radio_player: ^1.4.1
   flutter_native_splash: ^2.3.1
   firebase_core: ^2.14.0
   cloud_firestore: ^4.8.1
   flutter_spinkit: ^5.2.0
+  just_audio: ^0.9.34
+  audio_session: ^0.1.16
+  just_audio_background: ^0.0.1-beta.10
 
 
   # The following adds the Cupertino Icons font to your application.
